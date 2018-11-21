@@ -3,35 +3,42 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace SREnergyMeterCore {
     class Program {
-        static void Main(string[] args) {
+        static async Task Main(string[] args) {
 
-            var port = new SerialPortStream("/dev/ttyS0", 115200);
+            var port = new SerialPortStream(Credential.SerialPortDeviceName, 115200);
             port.NewLine = "\r\n";
             port.Encoding = Encoding.ASCII;
             port.Open();
 
-            port.WriteLine("SKVER");
-            Console.WriteLine(port.ReadLine());
-            Console.WriteLine(port.ReadLine());
+            {
+                port.WriteLine("SKVER");
+                Console.WriteLine(port.ReadLine());
+                Console.WriteLine(port.ReadLine());
 
-            port.WriteLine("SKINFO");
-            Console.WriteLine(port.ReadLine());
-            Console.WriteLine(port.ReadLine());
-            Console.WriteLine(port.ReadLine());
+                port.WriteLine("SKINFO");
+                Console.WriteLine(port.ReadLine());
+                Console.WriteLine(port.ReadLine());
+                Console.WriteLine(port.ReadLine());
 
-            port.WriteLine("SKSETPWD C 3QEOUBZJCSD7");
-            Console.WriteLine(port.ReadLine());
-            Console.WriteLine(port.ReadLine());
+                port.WriteLine("SKSETPWD C " + Credential.BRouteId);
+                Console.WriteLine(port.ReadLine());
+                Console.WriteLine(port.ReadLine());
 
-            port.WriteLine("SKSETRBID 00000099021200000000000000F6912D");
-            Console.WriteLine(port.ReadLine());
-            Console.WriteLine(port.ReadLine());
+                port.WriteLine("SKSETRBID " + Credential.BRoutePasscode);
+                Console.WriteLine(port.ReadLine());
+                Console.WriteLine(port.ReadLine());
+            }
 
+            var httpClient = new HttpClient();
+
+scanretry:
             var duration = 4;
             var map = new Dictionary<string, string>();
             while(!map.ContainsKey("Channel")) {
@@ -54,10 +61,10 @@ namespace SREnergyMeterCore {
                         map[str[0]] = str[1];
                     }
                 }
-                if(duration > 14) {
+                if(duration > 8) {
 
                     Console.WriteLine("Duration Exceeded");
-                    return;
+                    goto scanretry;
                 }
             }
 
@@ -158,7 +165,19 @@ retry:
 
                             if (epc == "E7") {
 
-                                Console.WriteLine("瞬時電力計測値：" + int.Parse(erxudp.Substring(erxudp.Length - 8), NumberStyles.HexNumber) + " W");
+                                var wat = int.Parse(erxudp.Substring(erxudp.Length - 8), NumberStyles.HexNumber);
+
+                                var request = new HttpRequestMessage(HttpMethod.Post, Credential.ApiEndpoint);
+                                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Credential.BearerToken);
+
+                                var pairs = new List<KeyValuePair<string, string>>();
+                                pairs.Add(new KeyValuePair<string, string>("wat", wat.ToString()));
+                                request.Content = new FormUrlEncodedContent(pairs);
+
+
+                                await httpClient.SendAsync(request);
+
+                                Console.WriteLine("瞬時電力計測値：" + wat + " W");
                             }
                         }
                     }
